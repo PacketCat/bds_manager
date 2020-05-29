@@ -33,12 +33,15 @@ class HandlerFatalException(Exception):
 
 class Handler:
 
-	def __init__(self, levelname, log, backupinter):
+	def __init__(self, levelname, log, db, backupinter):
 		self.state = 0
 		self.log = log
 		self.last_backup = 0
 		self.b_interval = backupinter
 		self.levelname = levelname
+		self.db = db
+		self.return_data = None
+		self.server_started = False
 
 		#Checking if world dir is not exists
 		if not os.path.exists('./worlds/{}'.format(levelname)): 
@@ -46,24 +49,27 @@ class Handler:
 			os.mkdir('./worlds/{}'.format(self.levelname))
 
 		#Cheking if ./environ exists, if not -> exception bc in this dir must be server binary
-		if not os.path.exists('./environ') or not os.path.exists('./environ/worlds'): 
+		if not os.path.exists('./environ'): 
 			raise HandlerFatalException("Root directory is invalid, can't work here")
 
 		self.state = 1
 
 		#Copying world dir to ./environ/main
-		log.info('main','Copying directory')
-		shutil.copytree('./worlds/{}'.format(levelname), './environ/worlds/main')
+		log.info('main','Moving directory')
+		shutil.move('./worlds/{}'.format(levelname), './environ/worlds/main')
 
 		#Server launch
 		self.proccess = Popen(['./bedrock_server'], cwd='./environ/', stdin=PIPE, stdout=PIPE)
 		os.set_blocking(self.proccess.stdin.fileno(), False)
+		db.set_online(True)
 
 		log.info('main', 'Changing logging state: main >> server')
 
 
 	def _check_b(self):
 		#Checks last backup time, calls on every get/put operation
+		if not self.b_interval:
+			return
 		if self.last_backup < time.time():
 			self._backup()
 			self.last_backup = int(time.time()) + self.b_interval
@@ -85,38 +91,48 @@ class Handler:
 			with zipfile.ZipFile('./backups/{}/{}.zip'.format(self.levelname, time.time()), 'w') as zip:
 				for root, dirs, files in os.walk('./environ/worlds/main/'):
 					for file in files:
+						if root.split('/')[-1] != 'db':
+							continue
 						zip.write(root +'/' + file, (root+'/'+file)[len('./environ/worlds/main/'):])
 		self.log.info('server', 'Backup complete.')
 
 	def get(self):
 		self._check_b()
-		return self.proccess.stdout.readline().decode()
+		ret = self.proccess.stdout.readline().decode()
+		if '] Server started.\n' in ret:
+			self.server_started = True
+		return ret
 
 	def put(self, data):
 		self._check_b()
 		buf = data.encode() + b'\n'
-		return self.proccess.stdin.write(buf)
+		self.proccess.stdin.write(buf)
+		self.proccess.stdin.flush()
 
 
 	def stop(self, reason = 'Server stopped'):
 		self.log.info('server', 'Stopping server')
 		self.log.info('server','Changing logging state: server >> main')
 
-		buf = 'kick @a {}'.format(reason)
-		self.put(buf) #Kicks players from server
+		for player in self.db.players_online: #Kicks players from server
+			buf = 'kick {} {}'.format(player, reason)
+			self.put(buf) 
 		buf = b'stop\n'
-		self.proccess.communicate(input=buf) #Stops server normally
+		self.return_data = self.proccess.communicate(input=buf) #Stops server normally
+
 
 		self.log.info('main', 'Cleaning...')
 		self.state = 2
 
 		#Moving ./environ/main to world folder
-		shutil.rmtree('./worlds/{}'.format(self.levelname)) 
-		shutil.copytree('./environ/worlds/main', './worlds/{}'.format(self.levelname))
+		shutil.move('./environ/worlds/main', './worlds/{}'.format(self.levelname))
+		with open('./worlds/{}/levelname.txt'.format(self.levelname), 'w') as w:
+			w.write(self.db.mconf['worlds'][self.levelname]['levelname'])
 		self.state = 1 
-		shutil.rmtree('./environ/worlds/main')
-
+		self.db.set_online(False)
+		self.db.iterworlds()
 		self.state = 0
+
 
 
 
@@ -128,7 +144,6 @@ class Handler:
 			self.log.info('main', 'Recovering from backup')
 			self.state = 2
 		
-			shutil.rmtree('./worlds/{}'.format(self.levelname))
 			zip.extractall('./worlds/{}'.format(self.levelname))
 		self.__init__(self.levelname, self.log, self.b_interval)
 
@@ -138,7 +153,7 @@ class Handler:
 			return
 		elif self.state == 1:
 			try:
-				shutil.rmtree('./environ/worlds/main')
+				shutil.move('./environ/worlds/main', './worlds/{}'.format(self.levelname))
 			except:
 				pass
 		elif self.state == 2:
