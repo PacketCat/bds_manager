@@ -33,9 +33,9 @@ class HandlerFatalException(Exception):
 
 class Handler:
 
-	def __init__(self, levelname, log, db, backupinter):
+	def __init__(self, levelname, db, backupinter):
 		self.state = 0
-		self.log = log
+		self.log = db.log
 		self.last_backup = 0
 		self.b_interval = backupinter
 		self.levelname = levelname
@@ -45,7 +45,7 @@ class Handler:
 
 		#Checking if world dir is not exists
 		if not os.path.exists('./worlds/{}'.format(levelname)): 
-			log.error('main', 'World folder not found >> trying create;')
+			self.log.error('main', 'World folder not found >> trying create;')
 			os.mkdir('./worlds/{}'.format(self.levelname))
 
 		#Cheking if ./environ exists, if not -> exception bc in this dir must be server binary
@@ -55,15 +55,16 @@ class Handler:
 		self.state = 1
 
 		#Copying world dir to ./environ/main
-		log.info('main','Moving directory')
+		self.log.info('main','Moving directory')
 		shutil.move('./worlds/{}'.format(levelname), './environ/worlds/main')
 
 		#Server launch
 		self.proccess = Popen(['./bedrock_server'], cwd='./environ/', stdin=PIPE, stdout=PIPE)
 		os.set_blocking(self.proccess.stdin.fileno(), False)
 		db.set_online(True)
+		self.put('gamerule')
 
-		log.info('main', 'Changing logging state: main >> server')
+		self.log.info('main', 'Changing logging state: main >> server')
 
 
 	def _check_b(self):

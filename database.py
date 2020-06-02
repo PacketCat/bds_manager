@@ -9,11 +9,12 @@ class Database:
 		self._create_dirs()
 		self.log = logger.Logging(debug=debug)
 
+		self.gamerules = {}
 
 		self.mconf = {}
 		self.execute_after_stop = []
 
-		self.players_online = []
+		self.players_online = {}
 
 		self.firststart = 0
 
@@ -39,7 +40,7 @@ class Database:
 			'servername': 'BDS',
 			'current_world': None,
 			'backup_interval': None,
-			'checkupdate_interval': None,
+			'checkupdate_interval': 86400,
 			'reboot_interval': 604800,
 			'session_keys': [],
 			'startup_action': None,
@@ -84,14 +85,6 @@ class Database:
 		self.mconf['serverconfig']['servername'] = action
 		self._sync()
 
-	def add_session_key(self, session_key):
-		self.mconf['serverconfig']['session_keys'].append(session_key)
-		self._sync()
-
-	def remove_session_key(self, session_key):
-		self.mconf['serverconfig']['session_keys'].remove(session_key)
-		self._sync()
-
 
 
 	def iterworlds(self):
@@ -113,7 +106,7 @@ class Database:
 			json.dump(self.mconf, confl)
 
 	def get_worlds(self):
-		return self.mconf['worlds'].keys()
+		return self.mconf['worlds']
 
 	def get_world_info(self, worldname):
 		world = self.mconf['worlds'][worldname]
@@ -130,18 +123,23 @@ class Database:
 		else:
 			behaviors = None
 
-		if os.path.exists('./worlds/{}/world_icon.jpeg'.format(worldname)):
-			with open('./worlds/{}/world_icon.jpeg.json'.format(worldname), 'rb') as wi:
-				pic = wi.read()
-		else:
-			pic = None
+		# if os.path.exists('./worlds/{}/world_icon.jpeg'.format(worldname)):
+		# 	with open('./worlds/{}/world_icon.jpeg.json'.format(worldname), 'rb') as wi:
+		# 		pic = wi.read()
+		# else:
+		# 	pic = None
 
-		return {
+		ret = {
 		'world': world,
 		'resources': resources,
 		'behaviors': behaviors,
-		'pic': pic
+		'pic': None
 		}
+
+		if worldname == self.mconf['serverconfig']['current_world']:
+			ret['gamerules'] = self.gamerules
+
+		return json.dumps(ret)
 
 	def select_world(self, worldname):
 		self.log.debug('main', 'World changed')
@@ -353,7 +351,7 @@ class Database:
 	def import_mcpack(self, path):
 		self.log.debug('main', 'Importing pack "{}"...'.format(path))
 		with zipfile.ZipFile(path, 'r') as zz:
-			if 'manifest.json' not in zz.namelist(): return -1
+			if 'manifest.json' not in zz.namelist(): return self.import_world(path)
 			manifest = json.loads(zz.read('manifest.json').decode())
 			if manifest['modules'][0]['type'] == 'resources':
 				tmp = './.temp/' + str(time.time())
@@ -387,15 +385,12 @@ class Database:
 		root, dirs, files = next(os.walk('./environ/resource_packs'))
 		response = []
 		for i in dirs:
-			element = {'path': os.path.join(root, i), 'manifest': None, 'pic': None}
-			try:
-				with open(os.path.join(root, i, 'manifest.json'), 'r') as rd:
-					element['manifest'] = json.load(rd)
-			except:
-				continue
-			# if os.path.exists(os.path.join(root, i, 'world_icon.jpeg')):
-			# 	with open(os.path.join(root, i, 'world_icon.jpeg'), 'rb') as ri:
-			# 		element['pic'] = ri.read()
+			element = {'path': os.path.join(root, i)}
+			with open(os.path.join(root, i, 'manifest.json'), 'r') as rd:
+				manifest = json.load(rd)
+				element['name'] = manifest['header']['name']
+				element['uuid'] = manifest['header']['uuid']
+				element['version'] = manifest['header']['version']
 			response.append(element)
 		return json.dumps(response)
 
@@ -404,12 +399,12 @@ class Database:
 		root, dirs, files = next(os.walk('./environ/behavior_packs'))
 		response = []
 		for i in dirs:
-			element = {'path': os.path.join(root, i), 'manifest': None, 'pic': None}
+			element = {'path': os.path.join(root, i)}
 			with open(os.path.join(root, i, 'manifest.json'), 'r') as rd:
-				element['manifest'] = json.load(rd)
-			# if os.path.exists(os.path.join(root, i, 'world_icon.jpeg')):
-			# 	with open(os.path.join(root, i, 'world_icon.jpeg'), 'rb') as ri:
-			# 		element['pic'] = ri.read().decode
+				manifest = json.load(rd)
+				element['name'] = manifest['header']['name']
+				element['uuid'] = manifest['header']['uuid']
+				element['version'] = manifest['header']['version']
 			response.append(element)
 		return json.dumps(response)
 

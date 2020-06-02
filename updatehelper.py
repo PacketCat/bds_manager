@@ -12,7 +12,10 @@ def check_server_updates(logger):
 		with open('./server.version', 'r') as ver:
 			version = ver.read()
 	logger.info('main', 'Checking bds actual version...')
-	soup = BeautifulSoup(requests.get('https://www.minecraft.net/en-us/download/server/bedrock').text, 'html.parser')
+	try:
+		soup = BeautifulSoup(requests.get('https://www.minecraft.net/en-us/download/server/bedrock').text, 'html.parser')
+	except requests.exceptions.ConnectionError:
+		return -1
 	link = soup.find(attrs={'data-platform': 'serverBedrockLinux'}).get('href')
 
 	if link[len('https://minecraft.azureedge.net/bin-linux/bedrock-server-'):-4] != version:

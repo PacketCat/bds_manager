@@ -18,7 +18,7 @@ class Logging:
 		self.fd.write(str(prefix) + data + '\n')
 		self.fd.flush()
 		for i in self.polllist:
-			i.put('all', str(prefix)+data)
+			i.append(str(prefix)+data)
 	def error(self, state, string):
 		dt = datetime.datetime.today()
 		self._write(state, '[{}-{}-{} {}:{}:{} ERROR] :: {}'.format(dt.year, dt.month, dt.day, dt.hour, dt.minute, dt.second, string))
@@ -27,6 +27,8 @@ class Logging:
 		self._write(state, '[{}-{}-{} {}:{}:{} INFO] :: {}'.format(dt.year, dt.month, dt.day, dt.hour, dt.minute, dt.second, string))
 	def raw(self, string):
 		self._write('server', string[:-1])
+	def rawconsole(self, string):
+		self._write('console', string)
 	def warning(self, state, string):
 		dt = datetime.datetime.today()
 		self._write(state, '[{}-{}-{} {}:{}:{} WARNING] :: {}'.format(dt.year, dt.month, dt.day, dt.hour, dt.minute, dt.second, string))
@@ -38,7 +40,7 @@ class Logging:
 
 	def get_past_lines(self):
 		with open(self.fd.name, 'r') as lines:
-			return lines.split('\n')
+			return lines.read().split('\n')[:-1]
 
 	def close(self):
 		self.fd.close()
