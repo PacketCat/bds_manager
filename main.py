@@ -45,6 +45,7 @@ class Manager:
 		return password
 
 	def start(self):
+		print('start')
 		self.serverstate = 'prestart_update_check'
 		if updatehelper.check_server_updates(self.log) == 1:
 			updatehelper.extract(self.log, servername=self.db.mconf['serverconfig']['servername'])
@@ -64,8 +65,10 @@ class Manager:
 		self.db.players_online = {}
 		self.serverstate = 1
 		self.db.firststart = 0
+		self.last_reboot = time.time()
 
 	def stop(self, message = None, reason = None):
+		print('stop')
 		#§
 		if message:
 			self.serverhandler.put('tellraw @a {{"rawtext": [{{"text": "{}"}}]}}'.format(message))
@@ -108,9 +111,13 @@ class Manager:
 					line = self.serverhandler.get()
 					if '] Player connected:' in line:
 						self.db.players_online[line.split('connected: ')[1].split(',')[0]] = int(line.split('xuid: ')[1][:-1])
+						event = proto.Event(name = 'online_event', data = {'type': 0, 'name': line.split('connected: ')[1].split(',')[0], 'xuid': int(line.split('xuid: ')[1][:-1])})
+						self.q_out.put(event)
 					elif '] Player disconnected:' in line:
 						try:
-							self.db.players_online.pop(line.split('disconnected: ')[1].split(',')[0])
+							xuid = self.db.players_online.pop(line.split('disconnected: ')[1].split(',')[0])
+							event = proto.Event(name = 'online_event', data = {'type': 1, 'name': line.split('disconnected: ')[1].split(',')[0], 'xuid': xuid})
+							self.q_out.put(event)
 						except:
 							pass
 					elif 'Server started.' in line:
@@ -118,7 +125,13 @@ class Manager:
 					elif 'commandblockoutput = ' in line:
 						self.parse_gamerules(line)
 					elif 'Kicked' in line:
-						self.db.players_online.pop(line.split()[1])
+						xuid = self.db.players_online.pop(line.split()[1])
+						event = proto.Event(name = 'online_event', data = {'type': 1, 'name': line.split()[1], 'xuid': xuid})
+						self.q_out.put(event)
+					elif 'Banned' in line:
+						xuid = self.db.players_online.pop(line.split()[1])
+						event = proto.Event(name = 'online_event', data = {'type': 1, 'name': line.split()[1], 'xuid': xuid})
+						self.q_out.put(event)
 
 
 					self.log.raw(line)
@@ -139,7 +152,6 @@ class Manager:
 
 	def _update_thread(self):
 		self.checking_updates = True
-		self.q_out.put(proto.Event(name = 'checking_updates'))
 		self.update_result = updatehelper.check_server_updates(self.log)
 
 
@@ -148,6 +160,8 @@ class Manager:
 		self.thread_dict['serveroutput'] = Thread(target = self._ServerOutputThreadFunction, daemon = True)
 		self.thread_dict['q_out'] = Thread(target = self._q_out_thread, daemon = True)
 
+		aoa = 0
+
 		print('Starting threads...')
 
 		self.thread_dict['inethandler'].start()
@@ -155,6 +169,9 @@ class Manager:
 		self.thread_dict['q_out'].start()
 
 		print('Successfully started!')
+
+		if self.db.mconf['serverconfig']['startup_action'] == 'start':
+			self.start()
 
 		while True:
 
@@ -179,6 +196,7 @@ class Manager:
 
 			if not self.q_in.empty():
 				event = self.q_in.get()
+				print(event.name, event.data)
 
 				if event.name == 'start':
 					if self.serverstate == 0:
@@ -258,22 +276,23 @@ class Manager:
 							from_fd = event.from_fd
 							))
 
-					elif event.data['name'] == 'select_world':
+					elif event.data['name'] == 'selected_world':
 						self.q_out.put(proto.Event(
 							name = 'answer',
-							data = {'name': 'select_world', 'value': self.db.mconf['serverconfig']['current_world']},
+							data = {'name': 'selected_world', 'value': self.db.mconf['serverconfig']['current_world']},
 							from_fd = event.from_fd
 							))
 
 					elif event.data['name'] == 'worlds':
 						self.q_out.put(proto.Event(
 							name = 'answer',
-							data = {'name': 'worlds', 'value': self.db.get_worlds()},
+							data = {'name': 'worlds', 'value':  json.dumps(self.db.get_worlds())},
 							from_fd = event.from_fd
 							))
 
 					elif event.data['name'] == 'world_info':
-						self.serverhandler.put('gamerule')
+						if self.serverhandler:
+							self.serverhandler.put('gamerule')
 						self.q_out.put(proto.Event(
 							name = 'answer',
 							data = {'name': 'world_info', 'value':self.db.get_world_info(event.data['args'].decode())},
@@ -297,6 +316,7 @@ class Manager:
 							data = {'name': 'world_backups_list', 'value': json.dumps(l)},
 							from_fd = event.from_fd
 							))
+
 					elif event.data['name'] == 'prop':
 						with open('./environ/server.properties', 'r') as prop:
 							self.q_out.put(proto.Event(
@@ -305,11 +325,21 @@ class Manager:
 								from_fd = event.from_fd
 								))
 
+					elif event.data['name'] == 'gamerules':
+						self.serverhandler.put('gamerule')
+						time.sleep(1)
+						self.q_out.put(proto.Event(
+							name = 'answer',
+							data = {'gamerules': json.dumps(self.db.gamerules)},
+							from_fd = event.from_fd
+							))
+
+
 				elif event.name == 'set':
 					if event.data['name'] == 'password':
 						self.db.set_password(event.data['value'].decode())
 
-					elif data['name'] == 'backup_interval':
+					elif event.data['name'] == 'backup_interval':
 						self.serverhandler.b_interval = event.data['value']
 						self.db.set_backup_interval(event.data['value'])
 						self.q_out.put(proto.Event(
@@ -318,7 +348,7 @@ class Manager:
 							from_fd = 0
 							))
 
-					elif data['name'] == 'checkupdate_interval':
+					elif event.data['name'] == 'checkupdate_interval':
 						self.last_updatecheck = time.time()
 						self.db.set_checkupdate_interval(event.data['value'])
 						self.q_out.put(proto.Event(
@@ -327,7 +357,7 @@ class Manager:
 							from_fd = 0
 							))
 
-					elif data['name'] == 'reboot_interval':
+					elif event.data['name'] == 'reboot_interval':
 						self.last_reboot = time.time()
 						self.db.set_reboot_interval(event.data['value'])
 						self.q_out.put(proto.Event(
@@ -336,7 +366,7 @@ class Manager:
 							from_fd = 0
 							))
 
-					elif data['name'] == 'servername':
+					elif event.data['name'] == 'servername':
 						self.db.set_servername(event.data['value'].decode())
 						self.q_out.put(proto.Event(
 							name = 'value_changed',
@@ -344,7 +374,7 @@ class Manager:
 							from_fd = 0
 							))
 
-					elif data['name'] == 'startup_action':
+					elif event.data['name'] == 'startup_action':
 						self.db.set_startup_action(event.data['value'].decode())
 						self.q_out.put(proto.Event(
 							name = 'value_changed',
@@ -353,10 +383,10 @@ class Manager:
 							))
 
 				elif event.name == 'kick':
-					self.serverhandler.put('kick {}'.format(event.data['nickname'].decode()))
+					self.serverhandler.put('kick "{}"'.format(event.data['nickname'].decode()))
 
 				elif event.name == 'ban':
-					self.serverhandler.put('ban {}'.format(event.data['nickname'].decode()))
+					self.serverhandler.put('ban "{}"'.format(event.data['nickname'].decode()))
 
 				elif event.name == 'recover_fr_backup':
 					if self.recover(event.data['filename'].decode()) == -1:
@@ -370,8 +400,7 @@ class Manager:
 					self.db.select_world(event.data['worldname'].decode())
 					self.q_out.put(proto.Event(
 							name = 'select_world',
-							data = {'name': event.data['worldname']},
-							from_fd = event.from_fd
+							data = {'name': event.data['worldname']}
 							))
 
 				elif event.name == 'new_world':
@@ -416,10 +445,16 @@ class Manager:
 					self.reboot()
 
 				elif event.name == 'import':
-					self.db.import_mcpack(LOADED_FILENOS[event.data['fileno']])
-					self.q_out.put(proto.Event(
-						name = 'pack_imported'
-						))
+					world = self.db.import_mcpack(inethandler.LOADED_FILENOS[event.data['fileno']])
+					if world:
+						self.q_out.put(proto.Event(
+							name = 'new_world',
+							data = {'name': world}
+							))
+					else:
+						self.q_out.put(proto.Event(
+							name = 'pack_imported'
+							))
 
 				elif event.name == 'unimport':
 					self.db.remove_pack(event.data['uuid'].decode(), event.data['ver'].decode())

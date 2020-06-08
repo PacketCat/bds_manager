@@ -112,6 +112,7 @@ class Handler:
 
 
 	def stop(self, reason = 'Server stopped'):
+		print('stop received', reason)
 		self.log.info('server', 'Stopping server')
 		self.log.info('server','Changing logging state: server >> main')
 

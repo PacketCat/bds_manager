@@ -70,7 +70,8 @@ VALUES_IDS = {
 	'world_info': 11,
 	'players_online': 12,
 	'world_backups_list': 13,
-	'prop': 15
+	'prop': 15,
+	'gamerules': 16
 }
 
 
@@ -106,7 +107,6 @@ def unpack_from(format, packet, offset):
 	if len(unpackd) == 1:
 		unpackd = unpackd[0]
 	return unpackd
-
 
 def decode_event(side, packet, fromfd):
 	event_key = iterdicts(side, packet[:2])
@@ -161,7 +161,7 @@ def decode_event(side, packet, fromfd):
 			data = {
 			'type': unpack_from('>H', packet, 2),
 			'name': unpack_from('>12s', packet, 4).rstrip(b'\x00'),
-			'xuid': unpack_from('>L', packet, struct.calcsize('>HH12s'))
+			'xuid': unpack_from('>Q', packet, struct.calcsize('>HH12s'))
 			}
 			event = Event(name = 'online_event', data = data, from_fd = fromfd)
 			return event
@@ -225,10 +225,10 @@ def decode_event(side, packet, fromfd):
 			return event
 			
 		elif event_key == 'cget':
-			data = {'value': unpack_from('>H', packet, 2)}
-			if data['value'] == 11 or data['value'] == 13:
+			data = {'name': unpack_from('>H', packet, 2)}
+			if data['name'] == 11 or data['name'] == 13:
 				data['args'] = unpack_from('>1510s', packet, 4).rstrip(b'\x00')
-			data['value'] = itervalids(data['value'])
+			data['name'] = itervalids(data['name'])
 			event = Event(name = 'get', data = data, from_fd = fromfd)
 			return event
 			
@@ -346,9 +346,13 @@ def decode_event(side, packet, fromfd):
 			event = Event(name = 'upload', data = data, from_fd = fromfd)
 			return event
 
-
-
 def encode_event(side, event):
+	data = _encode_event(side, event)
+	print(data)
+	header = struct.pack('>H', len(data))
+	return header+data
+
+def _encode_event(side, event):
 	if side:
 		if event.name == 'socket_connected':
 			packet = S_HEADERS['sconnected']
@@ -410,7 +414,7 @@ def encode_event(side, event):
 			return packet
 
 		elif event.name == 'online_event':
-			packet = S_HEADERS['sonline'] + struct.pack('>H12sL', event.data['type'], event.data['name'].encode(), event.data['xuid'])
+			packet = S_HEADERS['sonline'] + struct.pack('>H12sQ', event.data['type'], event.data['name'].encode(), event.data['xuid'])
 			if LOG:
 				LOG.debug('main', 'Formed packet of {} event: {}'.format(event.name, packet))
 			return packet
@@ -468,6 +472,9 @@ def encode_event(side, event):
 			if LOG:
 				LOG.debug('main', 'Formed packet of {} event: {}'.format(event.name, packet))
 			return packet
+		else:
+			print(event.name, event.data)
+			raise Exception('ebalo zavali')
 
 	else:
 
@@ -480,7 +487,7 @@ def encode_event(side, event):
 			return packet
 			
 		elif event.name == 'write_console':
-			packet = CL_HEADERS['cconsole'] + struct.pack('>1510s', event.data['text'])
+			packet = CL_HEADERS['cconsole'] + struct.pack('>1510s', event.data['text'].encode())
 			return packet
 			
 		elif event.name == 'get':
@@ -494,9 +501,9 @@ def encode_event(side, event):
 		elif event.name == 'set':
 			packet = CL_HEADERS['cset']
 			if VALUES_IDS[event.data['name']] < 5:
-				packet += struct.pack('>HL', event.data['name'], event.data['value'])
+				packet += struct.pack('>HL', VALUES_IDS[event.data['name']], event.data['value'])
 			else:
-				packet += struct.pack('>H1510s', event.data['name'], event.data['value'].encode())
+				packet += struct.pack('>H1510s', VALUES_IDS[event.data['name']], event.data['value'].encode())
 			if LOG:
 				LOG.debug('main', 'Formed packet of {} event: {}'.format(event.name, packet))
 			return packet
@@ -514,37 +521,37 @@ def encode_event(side, event):
 			return packet
 			
 		elif event.name == 'kick':
-			packet = CL_HEADERS['ckick'] + struct.pack('>12s', event.data['nickname'])
+			packet = CL_HEADERS['ckick'] + struct.pack('>12s', event.data['nickname'].encode())
 			if LOG:
 				LOG.debug('main', 'Formed packet of {} event: {}'.format(event.name, packet))
 			return packet
 			
 		elif event.name == 'ban':
-			packet = packet = CL_HEADERS['cban'] + struct.pack('>12s', event.data['nickname'])
+			packet = packet = CL_HEADERS['cban'] + struct.pack('>12s', event.data['nickname'].encode())
 			if LOG:
 				LOG.debug('main', 'Formed packet of {} event: {}'.format(event.name, packet))
 			return packet
 			
 		elif event.name == 'recover_fr_backup':
-			packet = CL_HEADERS['crecover'] + struct.pack('>1510s', event.data['filename'])
+			packet = CL_HEADERS['crecover'] + struct.pack('>1510s', event.data['filename'].encode())
 			if LOG:
 				LOG.debug('main', 'Formed packet of {} event: {}'.format(event.name, packet))
 			return packet
 			
 		elif event.name == 'select_world':
-			packet = CL_HEADERS['cselect'] + struct.pack('>1510s', event.data['worldname'])
+			packet = CL_HEADERS['cselect'] + struct.pack('>1510s', event.data['worldname'].encode())
 			if LOG:
 				LOG.debug('main', 'Formed packet of {} event: {}'.format(event.name, packet))
 			return packet
 			
 		elif event.name == 'new_world':
-			packet = CL_HEADERS['cnew'] + struct.pack('>1510s', event.data['levelname'])
+			packet = CL_HEADERS['cnew'] + struct.pack('>1510s', event.data['levelname'].encode())
 			if LOG:
 				LOG.debug('main', 'Formed packet of {} event: {}'.format(event.name, packet))
 			return packet
 			
 		elif event.name == 'delete_world':
-			packet = CL_HEADERS['cdelete'] + struct.pack('>1510s', event.data['worldname'])
+			packet = CL_HEADERS['cdelete'] + struct.pack('>1510s', event.data['worldname'].encode())
 			if LOG:
 				LOG.debug('main', 'Formed packet of {} event: {}'.format(event.name, packet))
 			return packet
@@ -598,13 +605,17 @@ def encode_event(side, event):
 			return packet
 			
 		elif event.name == 'download':
-			packet = CL_HEADERS['cdownload'] + struct.event('>H', event.data['fileno'])
+			packet = CL_HEADERS['cdownload'] + struct.pack('>H', event.data['fileno'])
 			if LOG:
 				LOG.debug('main', 'Formed packet of {} event: {}'.format(event.name, packet))
 			return packet
 			
 		elif event.name == 'upload':
-			packet = CL_HEADERS['cupload'] + struct.event('>L', event.data['size'])
+			packet = CL_HEADERS['cupload'] + struct.pack('>L', event.data['size'])
 			if LOG:
 				LOG.debug('main', 'Formed packet of {} event: {}'.format(event.name, packet))
-			return packet['cupload'] + struct.event('>L', event.data['size'])
+			return packet
+
+		else:
+			print(event.name, event.data)
+			raise Exception('ebalo zavali')

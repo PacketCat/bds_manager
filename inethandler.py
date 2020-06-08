@@ -1,4 +1,4 @@
-import socket, select, queue, proto, time, datetime, hashlib
+import socket, select, queue, proto, time, datetime, hashlib, struct
 
 _ADDRESS = ('', 19130)
 
@@ -14,6 +14,7 @@ class FileWriter:
 		return "< FileWriter object, saved {}% >".format(round(self.received/self.total*100, 1))
 
 	def put(self, data):
+		print(self.procent)
 		self.buffer += data
 		self.received += len(data)
 		if self.received == self.total:
@@ -29,12 +30,17 @@ class FileWriter:
 
 class InetHandler:
 	def __init__(self, input_queue, outq, password, db):
+		global _ADDRESS
 		self.log = db.log
 		self.input_queue = input_queue
 		self.outp = outq
 		self.pswd = password
 		self.db = db
 		self.return_var = None
+
+		if 'ip:port' in self.db.mconf['serverconfig'].keys():
+			_ADDRESS = self.db.mconf['serverconfig']['ip:port']
+
 
 		self.listener = socket.create_server(_ADDRESS)
 		self.clientsockets = {}
@@ -68,7 +74,6 @@ class InetHandler:
 					self.clientstate[clientsock.fileno()] = 'waitpass'
 
 				elif event & select.EPOLLHUP:
-					
 					print('HUP')
 					try:
 						self.clientsockets[fd].close()
@@ -79,9 +84,19 @@ class InetHandler:
 					self.epoll.unregister(fd)
 
 				elif event & select.EPOLLIN:
-					packet = self.clientsockets[fd].recv(15126)
+					mess = self.clientsockets[fd].recv(2)
+					if not mess:
+						print('HUP')
+						self.clientsockets[fd].close()
+						self.clientsockets.pop(fd)
+						self.clientstate.pop(fd)
+						self.epoll.unregister(fd)
+						continue
+					lent = struct.unpack('>H', mess)[0]
+					packet = self.clientsockets[fd].recv(lent)
 					try:
 						in_event = proto.decode_event(1, packet, fd)
+						print(in_event.name, in_event.data)
 					except Exception as e:
 						print(e)
 						in_event = None
@@ -89,12 +104,12 @@ class InetHandler:
 					if self.clientstate[fd] == 'waitpass':
 						#print(in_event.data['password'], hashlib.sha512(datetime.datetime.now().minute.to_bytes(1, byteorder='big') + password.encode()).digest())
 						if in_event and in_event.name == 'send_password':
-							if in_event.data['password'] == hashlib.sha512(datetime.datetime.now().minute.to_bytes(1, byteorder='big') + self.pswd.encode()).digest() or event.data['password'] == hashlib.sha512((datetime.datetime.now().minute-1).to_bytes(1, byteorder='big') + self.pswd.encode()).digest():
-								print(True)
+							if in_event.data['password'] == hashlib.sha512(datetime.datetime.now().minute.to_bytes(1, byteorder='big') + self.pswd.encode()).digest() or in_event.data['password'] == hashlib.sha512((datetime.datetime.now().minute-1).to_bytes(1, byteorder='big') + self.pswd.encode()).digest():
 								self.clientstate[fd] = 0
 								self.outp.put(proto.Event(name = 'socket_connected', data = {}, from_fd = fd))
 								for line in self.log.get_past_lines():
 									self.outp.put(proto.Event(name = 'console', data = {'line': line[:1510]}, from_fd = fd))
+								print('auth')
 
 							else:
 								self.outp.put(proto.Event(name = 'error', data = {'code': -1}, from_fd = fd))
@@ -138,7 +153,7 @@ class InetHandler:
 							value.send(proto.encode_event(1, outcomming_event))
 				else:
 					try:
-						self.clientsockets[outcomming_event.from_fd].send(proto.encode_event(1, outcomming_event))
+						print(self.clientsockets[outcomming_event.from_fd].send(proto.encode_event(1, outcomming_event)))
 					except BrokenPipeError:
 						self.clientsockets.pop(outcomming_event.from_fd)
 						self.epoll.unregister(fd)
