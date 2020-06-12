@@ -58,7 +58,6 @@ class InetHandler:
 		except Exception as e:
 			self.log.error('main', e)
 			self.return_var = -1
-			self.run()
 
 	def _run(self):
 		self.listener.setblocking(0)
