@@ -1,5 +1,5 @@
 import requests, os, subprocess
-from bs4 import BeautifulSoup
+import lxml.html
 import zipfile
 import shutil
 
@@ -13,15 +13,14 @@ def check_server_updates(logger):
 			version = ver.read()
 	logger.info('main', 'Checking bds actual version...')
 	try:
-		soup = BeautifulSoup(requests.get('https://www.minecraft.net/en-us/download/server/bedrock').text, 'html.parser')
+		html = lxml.html.document_fromstring(requests.get('https://www.minecraft.net/en-us/download/server/bedrock').text)
 	except requests.exceptions.ConnectionError:
 		logger.error('main', "Check update error: can't connect to minecraft servers; returning...")
 		return -1
-	link = soup.find(attrs={'data-platform': 'serverBedrockLinux'}).get('href')
+	link = html.xpath("//a[@data-platform='serverBedrockLinux']")[0].attrib['href']
 
 	if link[len('https://minecraft.azureedge.net/bin-linux/bedrock-server-'):-4] != version:
 		logger.info('main', 'Current version = {}, new version {} is available, downloading...'.format(version, link[len('https://minecraft.azureedge.net/bin-linux/bedrock-server-'):-4]))
-		#if subprocess.call(['curl', link, '-s', '-o', './original/server_image']) != 0: raise Exception('e')
 		cont = requests.get(link, stream = True)
 		if cont.status_code != 200:
 			logger.error('main', 'Download failed!')
