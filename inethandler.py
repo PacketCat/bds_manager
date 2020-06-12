@@ -154,10 +154,10 @@ class InetHandler:
 				if outcomming_event.from_fd == 0:
 					for key, value in self.clientsockets.items():
 						if self.clientstate[value.fileno()] != 'waitpass':
-							value.send(proto.encode_event(1, outcomming_event))
+							print(value.send(proto.encode_event(1, outcomming_event)))
 				else:
 					try:
-						self.clientsockets[outcomming_event.from_fd].send(proto.encode_event(1, outcomming_event))
+						print(self.clientsockets[outcomming_event.from_fd].send(proto.encode_event(1, outcomming_event)))
 					except BrokenPipeError:
 						self.clientsockets.pop(outcomming_event.from_fd)
 						self.epoll.unregister(fd)
