@@ -1,8 +1,12 @@
-import socket, select, queue, proto, time, datetime, hashlib, struct
+import socket, select, queue, proto, time, datetime, hashlib, struct, sys
 
 _ADDRESS = ('', 19130)
 
 LOADED_FILENOS = {}
+
+DEBUG = None
+
+print(DEBUG)
 
 class FileWriter:
 	def __init__(self, length):
@@ -14,7 +18,7 @@ class FileWriter:
 		return "< FileWriter object, saved {}% >".format(round(self.received/self.total*100, 1))
 
 	def put(self, data):
-		print(self.procent)
+		if DEBUG: print(self.procent())
 		self.buffer += data
 		self.received += len(data)
 		if self.received == self.total:
@@ -49,11 +53,10 @@ class InetHandler:
 		self.epoll = select.epoll()
 
 	def run(self):
-		self.return_var = self._run()
 		try:
 			self.return_var = self._run()
 		except Exception as e:
-			print(e)
+			self.log.error('main', e)
 			self.return_var = -1
 			#self.run()
 
@@ -72,9 +75,10 @@ class InetHandler:
 					self.epoll.register(clientsock.fileno(), select.EPOLLIN)
 					self.clientsockets[clientsock.fileno()] = clientsock
 					self.clientstate[clientsock.fileno()] = 'waitpass'
+					self.log.debug('main', 'чилипиздрик connected')
 
 				elif event & select.EPOLLHUP:
-					print('HUP')
+					self.log.debug('main', 'чилипиздрик disconnected')
 					try:
 						self.clientsockets[fd].close()
 						self.clientsockets.pop(fd)
@@ -86,7 +90,7 @@ class InetHandler:
 				elif event & select.EPOLLIN:
 					mess = self.clientsockets[fd].recv(2)
 					if not mess:
-						print('HUP')
+						self.log.debug('main', 'чилипиздрик disconnected')
 						self.clientsockets[fd].close()
 						self.clientsockets.pop(fd)
 						self.clientstate.pop(fd)
@@ -96,9 +100,9 @@ class InetHandler:
 					packet = self.clientsockets[fd].recv(lent)
 					try:
 						in_event = proto.decode_event(1, packet, fd)
-						print(in_event.name, in_event.data)
+						if DEBUG: print(in_event.name, in_event.data)
 					except Exception as e:
-						print(e)
+						self.log.error('main', e)
 						in_event = None
 
 					if self.clientstate[fd] == 'waitpass':
@@ -109,7 +113,7 @@ class InetHandler:
 								self.outp.put(proto.Event(name = 'socket_connected', data = {}, from_fd = fd))
 								for line in self.log.get_past_lines():
 									self.outp.put(proto.Event(name = 'console', data = {'line': line[:1510]}, from_fd = fd))
-								print('auth')
+								self.log.debug('main', 'чилипиздрик logged in')
 
 							else:
 								self.outp.put(proto.Event(name = 'error', data = {'code': -1}, from_fd = fd))
@@ -132,6 +136,7 @@ class InetHandler:
 							self.clientsockets[fd].close()
 							self.clientstate.pop[fd]
 							self.epoll.unregister(fd)
+							self.log.debug('main', 'чилипиздрик disconnected')
 
 						elif in_event and in_event.name == 'upload':
 							self.clientstate[fd] = {'upload_handler': FileWriter(in_event.data['size'])}
@@ -146,14 +151,14 @@ class InetHandler:
 
 			while not self.outp.empty():
 				outcomming_event = self.outp.get()
-				print('main', outcomming_event.data)
+				if DEBUG: print('main', outcomming_event.data)
 				if outcomming_event.from_fd == 0:
 					for key, value in self.clientsockets.items():
 						if self.clientstate[value.fileno()] != 'waitpass':
 							value.send(proto.encode_event(1, outcomming_event))
 				else:
 					try:
-						print(self.clientsockets[outcomming_event.from_fd].send(proto.encode_event(1, outcomming_event)))
+						self.clientsockets[outcomming_event.from_fd].send(proto.encode_event(1, outcomming_event))
 					except BrokenPipeError:
 						self.clientsockets.pop(outcomming_event.from_fd)
 						self.epoll.unregister(fd)

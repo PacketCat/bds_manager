@@ -1,7 +1,7 @@
 
 #Вроде рабочая версия
 
-from subprocess import Popen, PIPE
+from subprocess import Popen, PIPE, TimeoutExpired
 import shutil
 import os, time, zipfile
 
@@ -33,7 +33,7 @@ class HandlerFatalException(Exception):
 
 class Handler:
 
-	def __init__(self, levelname, db, backupinter):
+	def __init__(self, levelname, db, backupinter, error_callback):
 		self.state = 0
 		self.log = db.log
 		self.last_backup = 0
@@ -42,6 +42,7 @@ class Handler:
 		self.db = db
 		self.return_data = None
 		self.server_started = False
+		self.on_error = error_callback
 
 		#Checking if world dir is not exists
 		if not os.path.exists('./worlds/{}'.format(levelname)): 
@@ -57,12 +58,13 @@ class Handler:
 		#Copying world dir to ./environ/main
 		self.log.info('main','Moving directory')
 		shutil.move('./worlds/{}'.format(levelname), './environ/worlds/main')
+		open('./worlds/{}'.format(levelname), 'w').close()
 
 		#Server launch
 		self.proccess = Popen(['./bedrock_server'], cwd='./environ/', stdin=PIPE, stdout=PIPE)
 		os.set_blocking(self.proccess.stdin.fileno(), False)
 		db.set_online(True)
-		self.put('gamerule')
+		self.put(' ')
 
 		self.log.info('main', 'Changing logging state: main >> server')
 
@@ -102,6 +104,10 @@ class Handler:
 		ret = self.proccess.stdout.readline().decode()
 		if '] Server started.\n' in ret:
 			self.server_started = True
+		elif "Network port occupied, can't start server." in ret:
+			self.on_error()
+			self.kill()
+
 		return ret
 
 	def put(self, data):
@@ -112,7 +118,6 @@ class Handler:
 
 
 	def stop(self, reason = 'Server stopped'):
-		print('stop received', reason)
 		self.log.info('server', 'Stopping server')
 		self.log.info('server','Changing logging state: server >> main')
 
@@ -120,13 +125,17 @@ class Handler:
 			buf = 'kick {} {}'.format(player, reason)
 			self.put(buf) 
 		buf = b'stop\n'
-		self.return_data = self.proccess.communicate(input=buf) #Stops server normally
+		try:
+			self.return_data = self.proccess.communicate(input=buf, timeout = 120) #Stops server normally
+		except TimeoutExpired:
+			self.return_data = self.proccess.kill()
 
 
 		self.log.info('main', 'Cleaning...')
 		self.state = 2
 
 		#Moving ./environ/main to world folder
+		os.remove('./worlds/{}'.format(self.levelname))
 		shutil.move('./environ/worlds/main', './worlds/{}'.format(self.levelname))
 		with open('./worlds/{}/levelname.txt'.format(self.levelname), 'w') as w:
 			w.write(self.db.mconf['worlds'][self.levelname]['levelname'])
@@ -135,6 +144,10 @@ class Handler:
 		self.db.iterworlds()
 		self.state = 0
 
+	def kill(self):
+		self.state = 0
+		self.db.set_online(False)
+		self.proccess.kill()
 
 
 
@@ -155,6 +168,7 @@ class Handler:
 			return
 		elif self.state == 1:
 			try:
+				os.remove('./worlds/{}'.format(self.levelname))
 				shutil.move('./environ/worlds/main', './worlds/{}'.format(self.levelname))
 			except:
 				pass

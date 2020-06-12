@@ -1,7 +1,8 @@
 import serverhandler, database, updatehelper, inethandler, proto, json, time, sys, os, queue
 from threading import Thread
 
-VERSION = '0.0.0'
+VERSION = '0.0.1a'
+
 
 class Manager:
 	def __init__(self):
@@ -9,6 +10,7 @@ class Manager:
 
 		if '-d' in sys.argv:
 			self.db = database.Database(debug=True)
+			inethandler.DEBUG = True
 		else:
 			self.db = database.Database()
 
@@ -34,6 +36,8 @@ class Manager:
 		self.inethandler = inethandler.InetHandler(self.q_in, self.q_out, self.db.mconf['serverconfig']['password'], self.db)
 
 
+	def error_occured(self):
+		self.stop()
 
 	def get_password(self):
 		print('Remote access is not set, enter it to continue')
@@ -45,10 +49,12 @@ class Manager:
 		return password
 
 	def start(self):
-		print('start')
 		self.serverstate = 'prestart_update_check'
 		if updatehelper.check_server_updates(self.log) == 1:
 			updatehelper.extract(self.log, servername=self.db.mconf['serverconfig']['servername'])
+		else:
+			if not os.path.exists('./environ'):
+				return -2
 		self.last_updatecheck = time.time()
 		self.serverstate = 0
 		if not self.db.mconf['serverconfig']['current_world']:
@@ -57,9 +63,9 @@ class Manager:
 			self.db.select_world(self.db.new_world('Untitled BDS world'))
 		self.db.set_online(True)
 		try:
-			self.serverhandler = serverhandler.Handler(self.db.mconf['serverconfig']['current_world'], self.db, self.db.mconf['serverconfig']['backup_interval'])
+			self.serverhandler = serverhandler.Handler(self.db.mconf['serverconfig']['current_world'], self.db, self.db.mconf['serverconfig']['backup_interval'], self.error_occured)
 		except Exception as e:
-			print(e)
+			self.log.error('main', e)
 			self.db.set_online(False)
 			return -1
 		self.db.players_online = {}
@@ -68,7 +74,6 @@ class Manager:
 		self.last_reboot = time.time()
 
 	def stop(self, message = None, reason = None):
-		print('stop')
 		#§
 		if message:
 			self.serverhandler.put('tellraw @a {{"rawtext": [{{"text": "{}"}}]}}'.format(message))
@@ -142,10 +147,18 @@ class Manager:
 
 	def _q_out_thread(self):
 		poller = []
+		empty_count = 0
 		self.log.add2poll(poller)
 		while True:
 			if poller:
 				item = poller.pop(0)
+				if item == '1':
+					empty_count += 1
+					continue
+				if empty_count == 3:
+					empty_count = 0
+					self.q_out.put(proto.Event(name = 'error', data = {'code': 106}, from_fd = event.from_fd))
+					continue
 				self.q_out.put(proto.Event(name = 'console', data = {'line': item}, from_fd = 0))
 			time.sleep(0.1)
 
@@ -181,12 +194,16 @@ class Manager:
 
 			if self.checking_updates:
 				if self.update_result == 1:
-					if self.state == 1:
-						self.serverhandler.stop(message = '§aNew Bedrock Dedicated Server version is available, server will shutdown to update in few seconds, prepare to it!', reason = '§aServer is updating now, please come back later.')
+					if self.serverstate == 1:
+						self.stop(message = '§aNew Bedrock Dedicated Server version is available, server will shutdown to update in few seconds, prepare to it!', reason = '§aServer is updating now, please come back later.')
 						self.serverstate = 'updating'
 						self.q_out.put(proto.Event(name = 'updating', from_fd = 0))
 						updatehelper.extract(self.log, servername = self.db.mconf['serverconfig']['servername'])
 						self.start()
+						self.checking_updates = False
+					else:
+						self.q_out.put(proto.Event(name = 'updating', from_fd = 0))
+						updatehelper.extract(self.log, servername = self.db.mconf['serverconfig']['servername'])
 						self.checking_updates = False
 
 				if self.update_result != None:
@@ -196,11 +213,15 @@ class Manager:
 
 			if not self.q_in.empty():
 				event = self.q_in.get()
-				print(event.name, event.data)
 
 				if event.name == 'start':
 					if self.serverstate == 0:
-						self.start()
+						stra =  self.start()
+						if stra == -2:
+							self.q_out.put(proto.Event(name = 'error', data = {'code': 12}, from_fd = event.from_fd))
+						elif stra == -1:
+							self.q_out.put(proto.Event(name = 'error', data = {'code': 105}, from_fd = event.from_fd))
+
 					else:
 						self.q_out.put(proto.Event(name = 'error', data = {'code': 1}, from_fd = event.from_fd))
 
@@ -291,8 +312,6 @@ class Manager:
 							))
 
 					elif event.data['name'] == 'world_info':
-						if self.serverhandler:
-							self.serverhandler.put('gamerule')
 						self.q_out.put(proto.Event(
 							name = 'answer',
 							data = {'name': 'world_info', 'value':self.db.get_world_info(event.data['args'].decode())},
@@ -326,6 +345,7 @@ class Manager:
 								))
 
 					elif event.data['name'] == 'gamerules':
+						print('ebalvrot')
 						self.serverhandler.put('gamerule')
 						time.sleep(1)
 						self.q_out.put(proto.Event(
@@ -338,6 +358,7 @@ class Manager:
 				elif event.name == 'set':
 					if event.data['name'] == 'password':
 						self.db.set_password(event.data['value'].decode())
+						self.inethandler.pswd = self.db.mconf['serverconfig']['password']
 
 					elif event.data['name'] == 'backup_interval':
 						self.serverhandler.b_interval = event.data['value']
@@ -383,10 +404,18 @@ class Manager:
 							))
 
 				elif event.name == 'kick':
-					self.serverhandler.put('kick "{}"'.format(event.data['nickname'].decode()))
+					nickname = event.data['nickname'].decode()
+					if ' ' in nickname:
+						self.serverhandler.put('kick "{}"'.format(nickname))
+					else:
+						self.serverhandler.put('kick {}'.format(nickname))
 
 				elif event.name == 'ban':
-					self.serverhandler.put('ban "{}"'.format(event.data['nickname'].decode()))
+					nickname = event.data['nickname'].decode()
+					if ' ' in nickname:
+						self.serverhandler.put('ban "{}"'.format(nickname))
+					else:
+						self.serverhandler.put('ban {}'.format(nickname))
 
 				elif event.name == 'recover_fr_backup':
 					if self.recover(event.data['filename'].decode()) == -1:
@@ -400,8 +429,10 @@ class Manager:
 					self.db.select_world(event.data['worldname'].decode())
 					self.q_out.put(proto.Event(
 							name = 'select_world',
-							data = {'name': event.data['worldname']}
+							data = {'name': event.data['worldname'].decode()}
 							))
+					if self.serverstate == 1:
+						self.reboot()
 
 				elif event.name == 'new_world':
 					self.q_out.put(proto.Event(
@@ -410,11 +441,13 @@ class Manager:
 						)) 
 
 				elif event.name == 'delete_world':
-					self.db.delete_world(event.data['worldname'].decode())
-					self.q_out.put(proto.Event(
-						name = 'rem_world',
-						data = {'name': event.data['worldname'].decode()}
-						)) 
+					if self.db.delete_world(event.data['worldname'].decode()) != -1:
+						self.q_out.put(proto.Event(
+							name = 'rem_world',
+							data = {'name': event.data['worldname'].decode()}
+							)) 
+					else:
+						self.q_out.put(proto.Event(name = 'error', data = {'code': -55}, from_fd = event.from_fd))
 
 				elif event.name == 'check_updates':
 					self.thread_dict['update'] = Thread(target = self._update_thread)
@@ -433,13 +466,13 @@ class Manager:
 					with open('./environ/valid_known_packs.json', 'r') as p:
 						vkp = json.load(p)
 						type_ = 'r'
-						for i in vkp:
-							if i['uuid'] == event.data['uuid'].decode() and i['ver'] == event.data['ver'].decode():
+						for i in vkp[1:]:
+							if i['uuid'] == event.data['uuid'].decode() and i['version'] == '.'.join(map( str, json.loads( event.data['ver'].decode()))):
 								if i['path'].startswith('resource_packs/'):
 									type_ = 'r'
 								elif i['path'].startswith('behavior_packs/'):
 									type_ = 'b'
-					self.db.discard_to_world(event.data['worldname'].decode(), type_, event.data['uuid'].decode(), event.data['ver'].decode())
+					self.db.disapply_to_world(event.data['worldname'].decode(), type_, event.data['uuid'].decode(), json.loads(event.data['ver'].decode()))
 
 				elif event.name == 'restart':
 					self.reboot()
@@ -475,25 +508,45 @@ class Manager:
 			if self.db.mconf['serverconfig']['reboot_interval']:
 				if self.serverstate == 1:
 					if round(self.last_reboot + self.db.mconf['serverconfig']['reboot_interval'] - 60) == round(time.time()) and self.last_reboot_message != 60:
-						self.serverhandler.put('tellraw @a {{"rawtext": [{{"text": "{}"}}]}}'.format('Server will restart in one minute'))
+						self.serverhandler.put('tellraw @a {{"rawtext": [{{"text": "{}"}}]}}'.format('§6Server will restart in one minute'))
+						self.serverhandler.put('playsound note.bass @a')
+						self.last_reboot_message = 60
+
+
+					elif round(self.last_reboot + self.db.mconf['serverconfig']['reboot_interval'] - 30) == round(time.time()) and self.last_reboot_message != 30:
+						self.serverhandler.put('tellraw @a {{"rawtext": [{{"text": "{}"}}]}}'.format('§6Server will restart in 30 seconds'))
+						self.serverhandler.put('playsound note.bass @a')
+						self.last_reboot_message = 30
 
 					elif round(self.last_reboot + self.db.mconf['serverconfig']['reboot_interval'] - 10) == round(time.time()) and self.last_reboot_message != 10:
-						self.serverhandler.put('tellraw @a {{"rawtext": [{{"text": "{}"}}]}}'.format('Server will restart in 10 seconds'))
+						self.serverhandler.put('tellraw @a {{"rawtext": [{{"text": "{}"}}]}}'.format('§6Server will restart in 10 seconds'))
+						self.serverhandler.put('playsound note.bass @a')
+						self.last_reboot_message = 10
 
 					elif round(self.last_reboot + self.db.mconf['serverconfig']['reboot_interval'] - 5) == round(time.time()) and self.last_reboot_message != 5:
-						self.serverhandler.put('tellraw @a {{"rawtext": [{{"text": "{}"}}]}}'.format('Server will restart in 5 seconds'))
+						self.serverhandler.put('tellraw @a {{"rawtext": [{{"text": "{}"}}]}}'.format('§6Server will restart in 5 seconds'))
+						self.serverhandler.put('playsound note.bass @a')
+						self.last_reboot_message = 5
 
 					elif round(self.last_reboot + self.db.mconf['serverconfig']['reboot_interval'] - 4) == round(time.time()) and self.last_reboot_message != 4:
-						self.serverhandler.put('tellraw @a {{"rawtext": [{{"text": "{}"}}]}}'.format('Server will restart in 4 seconds'))
+						self.serverhandler.put('tellraw @a {{"rawtext": [{{"text": "{}"}}]}}'.format('§6Server will restart in 4 seconds'))
+						self.serverhandler.put('playsound note.bass @a')
+						self.last_reboot_message = 4
 
 					elif round(self.last_reboot + self.db.mconf['serverconfig']['reboot_interval'] - 3) == round(time.time()) and self.last_reboot_message != 3:
-						self.serverhandler.put('tellraw @a {{"rawtext": [{{"text": "{}"}}]}}'.format('Server will restart in 3 seconds'))
+						self.serverhandler.put('tellraw @a {{"rawtext": [{{"text": "{}"}}]}}'.format('§6Server will restart in 3 seconds'))
+						self.serverhandler.put('playsound note.bass @a')
+						self.last_reboot_message = 3
 
 					elif round(self.last_reboot + self.db.mconf['serverconfig']['reboot_interval'] - 2) == round(time.time()) and self.last_reboot_message != 2:
-						self.serverhandler.put('tellraw @a {{"rawtext": [{{"text": "{}"}}]}}'.format('Server will restart in 2 seconds'))
+						self.serverhandler.put('tellraw @a {{"rawtext": [{{"text": "{}"}}]}}'.format('§6Server will restart in 2 seconds'))
+						self.serverhandler.put('playsound note.bass @a')
+						self.last_reboot_message = 2
 
-					elif round(self.last_reboot + self.db.mconf['serverconfig']['reboot_interval'] - 1) == round(time.time()) and self.last_reboot_message != 60:
-						self.serverhandler.put('tellraw @a {{"rawtext": [{{"text": "{}"}}]}}'.format('Server will restart in 1 second'))
+					elif round(self.last_reboot + self.db.mconf['serverconfig']['reboot_interval'] - 1) == round(time.time()) and self.last_reboot_message != 1:
+						self.serverhandler.put('tellraw @a {{"rawtext": [{{"text": "{}"}}]}}'.format('§6Server will restart in 1 second'))
+						self.serverhandler.put('playsound note.bass @a')
+						self.last_reboot_message = 1
 
 					elif round(self.last_reboot + self.db.mconf['serverconfig']['reboot_interval']) < round(time.time()):
 						self.reboot()

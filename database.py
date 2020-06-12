@@ -2,7 +2,7 @@ import os, time, shutil
 import zipfile, logger
 import pyjson5 as json
 
-VER = '0.0.0'
+VER = '0.0.1a'
 
 class Database:
 	def __init__(self, debug=False):
@@ -69,7 +69,16 @@ class Database:
 				i()
 
 	def set_servername(self, newname):
+		oldname = self.mconf['serverconfig']['servername']
 		self.mconf['serverconfig']['servername'] = newname
+		try:
+			with open('./environ/server.properties', 'r') as propget:
+				prop = propget.read()
+				with open('./environ/server.properties', 'w') as propwri:
+					propwri.write(prop.replace('server-name={}'.format(oldname), 'server-name={}'.format(newname)))
+		except:
+			self.log.debug('main', 'error_on_write_servername')
+
 		self._sync()
 
 	def set_backup_interval(self, interval):
@@ -81,11 +90,11 @@ class Database:
 		self._sync()
 
 	def set_reboot_interval(self, interval):
-		self.mconf['serverconfig']['reboot'] = interval
+		self.mconf['serverconfig']['reboot_interval'] = interval
 		self._sync()
 
 	def set_startup_action(self, action):
-		self.mconf['serverconfig']['servername'] = action
+		self.mconf['serverconfig']['startup_action'] = action
 		self._sync()
 
 
@@ -120,7 +129,7 @@ class Database:
 		else:
 			resources = []
 
-		if os.path.exists('./worlds/{}/world_resource_packs.json'.format(worldname)):
+		if os.path.exists('./worlds/{}/world_behavior_packs.json'.format(worldname)):
 			with open('./worlds/{}/world_behavior_packs.json'.format(worldname), 'r') as wbp:
 				behaviors = json.load(wbp)
 		else:
@@ -168,6 +177,7 @@ class Database:
 						dirc += 1
 			if saved == 1:
 				dist = dist + ' ({})'.format(dirc)
+			os.mkdir('./backups/' + dist.split('/')[-1])
 
 
 			with open(dist + '/levelname.txt', 'r') as ln:
@@ -207,7 +217,7 @@ class Database:
 		except:
 			pass
 		with open('./worlds/w{}/levelname.txt'.format(dirc), 'wb') as wln:
-			wln.write(levelname)
+			wln.write(levelname.encode())
 		self.mconf['worlds']['w{}'.format(dirc)] = {'levelname': levelname}
 		self._sync()
 		self.log.debug('main', 'w{} world was created successfully.'.format(dirc))
@@ -217,8 +227,8 @@ class Database:
 		self.log.debug('main', 'Deleting world "{}"...'.format(worldname))
 		if self.mconf['serverconfig']['current_world'] == worldname and self.is_online:
 			return -1
-		elif elf.mconf['serverconfig']['current_world'] == worldname:
-			self.mconf['serverconfig']['current_world'] = None
+		elif self.mconf['serverconfig']['current_world'] == worldname:
+			self.mconf['serverconfig']['current_world'] = ""
 			shutil.rmtree('./worlds/{}'.format(worldname))
 			shutil.rmtree('./backups/{}'.format(worldname))
 			self.mconf['worlds'].pop(worldname)
@@ -236,7 +246,7 @@ class Database:
 	def apply_to_world(self, world, type, packfolder):
 		self.log.debug('main', 'Applying packs to world')
 		if self.mconf['serverconfig']['current_world'] == world and self.is_online:
-			self.execute_after_stop.append(lambda world, type, packfolder: self.apply_to_world(world, type, packfolder))
+			self.execute_after_stop.append(lambda: self.apply_to_world(world, type, packfolder))
 			return 1
 		else:
 			if type == 'r':
@@ -322,7 +332,7 @@ class Database:
 	def disapply_to_world(self, world, type, packuuid, packversion):
 		self.log.debug('main', 'Discarding packs from world')
 		if self.mconf['serverconfig']['current_world'] == world and self.is_online:
-			self.execute_after_stop.append(lambda world, type, packuuid: self.disapply_to_world(world, type, packuuid, packversion))
+			self.execute_after_stop.append(lambda: self.disapply_to_world(world, type, packuuid, packversion))
 			return 1
 		else:
 			if type == 'r':

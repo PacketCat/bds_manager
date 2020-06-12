@@ -15,6 +15,7 @@ def check_server_updates(logger):
 	try:
 		soup = BeautifulSoup(requests.get('https://www.minecraft.net/en-us/download/server/bedrock').text, 'html.parser')
 	except requests.exceptions.ConnectionError:
+		logger.error('main', "Check update error: can't connect to minecraft servers; returning...")
 		return -1
 	link = soup.find(attrs={'data-platform': 'serverBedrockLinux'}).get('href')
 
@@ -25,7 +26,7 @@ def check_server_updates(logger):
 		if cont.status_code != 200:
 			logger.error('main', 'Download failed!')
 			return -1
-		with open('./original/server_image', 'wb') as tof:
+		with open('./original/server', 'wb') as tof:
 			cont.raw.decode_content = True
 			shutil.copyfileobj(cont.raw, tof)
 		logger.info('main', 'Download complete.')
@@ -39,9 +40,9 @@ def check_server_updates(logger):
 
 def extract(logger, servername='Dedicated Server'):
 	if not os.path.exists('./environ'):
-		logger.info('main', 'Extracting server from image...')
+		logger.info('main', 'Extracting server...')
 		os.mkdir('./environ')
-		with zipfile.ZipFile('./original/server_image', 'r') as zipp:
+		with zipfile.ZipFile('./original/server', 'r') as zipp:
 			zipp.extractall('./environ')
 		proper = ''
 		with open('./environ/server.properties', 'r') as prop:
@@ -64,7 +65,7 @@ def extract(logger, servername='Dedicated Server'):
 		except:
 			pass
 
-		with zipfile.ZipFile('./original/server_image', 'r') as zipp:
+		with zipfile.ZipFile('./original/server', 'r') as zipp:
 			zipp.extractall('./environ')
 
 		os.remove('./environ/server.properties')
