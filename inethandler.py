@@ -58,6 +58,7 @@ class InetHandler:
 		except Exception as e:
 			self.log.error('main', e)
 			self.return_var = -1
+			#self.run()
 
 	def _run(self):
 		self.listener.setblocking(0)
@@ -154,10 +155,10 @@ class InetHandler:
 				if outcomming_event.from_fd == 0:
 					for key, value in self.clientsockets.items():
 						if self.clientstate[value.fileno()] != 'waitpass':
-							print(value.send(proto.encode_event(1, outcomming_event)))
+							value.send(proto.encode_event(1, outcomming_event))
 				else:
 					try:
-						print(self.clientsockets[outcomming_event.from_fd].send(proto.encode_event(1, outcomming_event)))
+						self.clientsockets[outcomming_event.from_fd].send(proto.encode_event(1, outcomming_event))
 					except BrokenPipeError:
 						self.clientsockets.pop(outcomming_event.from_fd)
 						self.epoll.unregister(fd)
