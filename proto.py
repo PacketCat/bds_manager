@@ -1,4 +1,4 @@
-#PROTO
+# PROTO
 import dataclasses, struct, sys
 
 DEBUG = None
