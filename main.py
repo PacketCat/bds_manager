@@ -157,7 +157,7 @@ class Manager:
 					continue
 				if empty_count == 3:
 					empty_count = 0
-					self.q_out.put(proto.Event(name = 'error', data = {'code': 106}, from_fd = event.from_fd))
+					self.q_out.put(proto.Event(name = 'error', data = {'code': 106}))
 					continue
 				self.q_out.put(proto.Event(name = 'console', data = {'line': item}, from_fd = 0))
 			time.sleep(0.1)
