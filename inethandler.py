@@ -111,7 +111,7 @@ class InetHandler:
 							if in_event.data['password'] == hashlib.sha512(datetime.datetime.now().minute.to_bytes(1, byteorder='big') + self.pswd.encode()).digest() or in_event.data['password'] == hashlib.sha512((datetime.datetime.now().minute-1).to_bytes(1, byteorder='big') + self.pswd.encode()).digest():
 								self.clientstate[fd] = 0
 								self.outp.put(proto.Event(name = 'socket_connected', data = {}, from_fd = fd))
-								for line in self.log.get_past_lines():
+                                                                for line in self.log.get_past_lines()[-256:]:
 									self.outp.put(proto.Event(name = 'console', data = {'line': line[:1510]}, from_fd = fd))
 								self.log.debug('main', 'чилипиздрик logged in')
 
