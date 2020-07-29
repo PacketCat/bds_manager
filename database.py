@@ -1,6 +1,6 @@
 import os, time, shutil
 import zipfile, logger
-import pyjson5 as json
+import json
 
 VER = '0.0.1a'
 
