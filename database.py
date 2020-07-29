@@ -114,7 +114,7 @@ class Database:
 
 	def _sync(self):
 		self.log.debug('main', 'Writing to disk')
-		with open('./conf.json', 'wb') as confl:
+		with open('./conf.json', 'w') as confl:
 			json.dump(self.mconf, confl)
 
 	def get_worlds(self):
@@ -216,7 +216,7 @@ class Database:
 			os.mkdir('./backups/w{}'.format(dirc))
 		except:
 			pass
-		with open('./worlds/w{}/levelname.txt'.format(dirc), 'wb') as wln:
+		with open('./worlds/w{}/levelname.txt'.format(dirc), 'w') as wln:
 			wln.write(levelname.encode())
 		self.mconf['worlds']['w{}'.format(dirc)] = {'levelname': levelname}
 		self._sync()
@@ -272,7 +272,7 @@ class Database:
 				}
 				if history_add in resource_h['packs'] and add not in resources:
 					resources.append(add)
-					with open('./worlds/' + world + '/world_resource_packs.json', 'wb') as wr:
+					with open('./worlds/' + world + '/world_resource_packs.json', 'w') as wr:
 						json.dump(resources, wr)
 				else:
 					resource_h['packs'].append(history_add)
@@ -284,9 +284,9 @@ class Database:
 					if not os.path.exists('./worlds/{}/resource_packs/{}'.format(world, packfolder.split('/')[-1])):
 						shutil.copytree(packfolder, './worlds/{}/resource_packs/{}'.format(world, packfolder.split('/')[-1]))
 
-					with open('./worlds/' + world + '/world_resource_pack_history.json', 'wb') as wr:
-						json.dump(resource_h, wr)
-					with open('./worlds/' + world + '/world_resource_packs.json', 'wb') as wr:
+					with open('./worlds/' + world + '/world_resource_pack_history.json', 'w') as wr:
+						json.dump(resource_h, wr
+					with open('./worlds/' + world + '/world_resource_packs.json', 'w') as wr:
 						json.dump(resources, wr)
 
 			elif type == 'b':
@@ -312,7 +312,7 @@ class Database:
 				}
 				if history_add in resource_h['packs'] and add in resources:
 					resources.append(add)
-					with open('./worlds/' + world + '/world_behavior_packs.json', 'wb') as wr:
+					with open('./worlds/' + world + '/world_behavior_packs.json', 'w') as wr:
 						json.dump(resources, wr)
 				else:
 					resource_h['packs'].append(history_add)
@@ -323,9 +323,9 @@ class Database:
 
 					shutil.copytree(packfolder, './worlds/{}/behavior_packs/{}'.format(world, packfolder.split('/')[-1]))
 
-					with open('./worlds/' + world + '/world_behavior_pack_history.json', 'wb') as wr:
+					with open('./worlds/' + world + '/world_behavior_pack_history.json', 'w') as wr:
 						json.dump(resource_h, wr)
-					with open('./worlds/' + world + '/world_behavior_packs.json', 'wb') as wr:
+					with open('./worlds/' + world + '/world_behavior_packs.json', 'w') as wr:
 						json.dump(resources, wr)
 			self.log.debug('main', 'Applied')
 
@@ -349,7 +349,7 @@ class Database:
 				
 				resources.remove(add)
 
-				with open('./worlds/' + world + '/world_resource_packs.json', 'wb') as wr:
+				with open('./worlds/' + world + '/world_resource_packs.json', 'w') as wr:
 					json.dump(resources, wr)
 
 			if type == 'b':
@@ -366,7 +366,7 @@ class Database:
 				
 				resources.remove(add)
 
-				with open('./worlds/' + world + '/world_behavior_packs.json', 'wb') as wr:
+				with open('./worlds/' + world + '/world_behavior_packs.json', 'w') as wr:
 					json.dump(resources, wr)
 		self.log.debug('main', 'Discarded')
 
@@ -401,7 +401,7 @@ class Database:
 				if v['uuid'] == uuid and v['version'] == version:
 					packs.pop(i+1)
 					shutil.rmtree('./environ/'+v['path'])
-		with open('./environ/valid_known_packs.json', 'wb') as vkp:
+		with open('./environ/valid_known_packs.json', 'w') as vkp:
 			json.dump(packs, vkp)
 		self.log.debug('main', 'Removed successfully.')
 
@@ -450,7 +450,7 @@ class Database:
 				shutil.copytree(path, './environ/resource_packs/{}'.format(name))
 			else:
 				shutil.copytree(path, './environ/resource_packs/{}'.format(path.split('/')[-1]))
-			with open('./environ/valid_known_packs.json', 'wb') as vkp:
+			with open('./environ/valid_known_packs.json', 'w') as vkp:
 				if name:
 					vkn.append({
 					"file_system" : "RawPath",
@@ -481,7 +481,7 @@ class Database:
 			else:
 				shutil.copytree(path, './environ/behavior_packs/{}'.format(path.split('/')[-1]))
 			
-			with open('./environ/valid_known_packs', 'wb') as vkp:
+			with open('./environ/valid_known_packs', 'w') as vkp:
 				if name:
 					vkn.append({
 					"file_system" : "RawPath",
