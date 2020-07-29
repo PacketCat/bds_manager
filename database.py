@@ -285,7 +285,7 @@ class Database:
 						shutil.copytree(packfolder, './worlds/{}/resource_packs/{}'.format(world, packfolder.split('/')[-1]))
 
 					with open('./worlds/' + world + '/world_resource_pack_history.json', 'w') as wr:
-						json.dump(resource_h, wr
+						json.dump(resource_h, wr)
 					with open('./worlds/' + world + '/world_resource_packs.json', 'w') as wr:
 						json.dump(resources, wr)
 
